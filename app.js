@@ -10,7 +10,22 @@ const DECLS = ['Pajemploi', 'CESU', 'Aucune'];
 
 const CFG = window.MN_CONFIG || {};
 const CLOUD = !!(CFG.supabaseUrl && CFG.supabaseAnonKey && window.supabase);
-const sb = CLOUD ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey) : null;
+// « Rester connectée » : la session est gardée sur l'appareil (localStorage) ou seulement le temps de la visite (sessionStorage).
+const remember = () => { try { return localStorage.getItem('mn-remember') !== '0'; } catch (e) { return true; } };
+const authStorage = {
+  getItem: k => { try { return localStorage.getItem(k) ?? sessionStorage.getItem(k); } catch (e) { return null; } },
+  setItem: (k, v) => {
+    try {
+      if (remember()) { localStorage.setItem(k, v); sessionStorage.removeItem(k); }
+      else { sessionStorage.setItem(k, v); localStorage.removeItem(k); }
+    } catch (e) {}
+  },
+  removeItem: k => { try { localStorage.removeItem(k); sessionStorage.removeItem(k); } catch (e) {} },
+};
+const sb = CLOUD ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, {
+  auth: { storage: authStorage, persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+}) : null;
+const lastEmail = () => { try { return localStorage.getItem('mn-email') || ''; } catch (e) { return ''; } };
 
 let user = null;          // utilisateur connecté (mode en ligne)
 let ready = !CLOUD;       // données chargées et prêtes à afficher
@@ -36,7 +51,7 @@ const hasData = d => d.nounous.length || d.creneaux.length || d.enfants.length;
 const cacheKey = () => user ? `${KEY}-${user.id}` : KEY;
 
 function save() {
-  try { localStorage.setItem(cacheKey(), JSON.stringify(S)); }
+  try { if (!user || remember()) localStorage.setItem(cacheKey(), JSON.stringify(S)); }
   catch (e) { if (!CLOUD) toast('Impossible d’enregistrer sur cet appareil'); }
   if (user) queuePush();
 }
@@ -72,7 +87,7 @@ async function pull() {
   if (error) { S = loadLocal(cacheKey()); setSync('error'); return; }
   if (data && data.data && Array.isArray(data.data.nounous)) {
     S = normalize(data.data);
-    try { localStorage.setItem(cacheKey(), JSON.stringify(S)); } catch (e) {}
+    try { if (remember()) localStorage.setItem(cacheKey(), JSON.stringify(S)); } catch (e) {}
     setSync('ok');
     return;
   }
@@ -212,13 +227,16 @@ function viewHome() {
 
   let h = monthStrip();
   h += `<section class="hero">
-    <div class="hero-label">Reste à régler en ${MONTHS[cur.m]}</div>
-    <div class="hero-amount">${eur(due)}</div>
+    <div class="hero-label">Total de ${MONTHS[cur.m]}</div>
+    <div class="hero-amount">${eur(tot)}</div>
     <div class="hero-line">${slots.length
-      ? `${hm(mins)} de garde · ${eur(tot)} au total${tx ? `, dont ${eur(tx)} de taxi` : ''}`
+      ? `${hm(mins)} de garde${tx ? ` · dont ${eur(tx)} de taxi` : ''}`
       : 'Aucune garde notée ce mois-ci.'}</div>
     ${tot ? `<div class="meter" role="img" aria-label="${pct} % réglé"><span style="width:${pct}%"></span></div>
-    <div class="meter-legend"><span>${eur(paid)} réglé</span><span>${pct} %</span></div>` : ''}
+    <div class="hero-split">
+      <div class="paid"><small>Réglé</small><b>${eur(paid)}</b></div>
+      <div class="${due > 0.004 ? 'due' : 'clear'}"><small>Reste à régler</small><b>${due > 0.004 ? eur(due) : 'Rien ✓'}</b></div>
+    </div>` : ''}
   </section>`;
 
   if (!slots.length) {
@@ -668,10 +686,11 @@ function viewAuth() {
     <form class="panel" id="authForm" autocomplete="on">
       ${authMsg ? `<div class="auth-msg">${esc(authMsg)}</div>` : ''}
       ${email ? `<div class="field"><label for="a-email">Email</label>
-        <input type="email" id="a-email" name="email" autocomplete="email" inputmode="email" placeholder="toi@exemple.fr" required></div>` : ''}
+        <input type="email" id="a-email" name="username" autocomplete="username" inputmode="email" placeholder="toi@exemple.fr" value="${esc(lastEmail())}" required></div>` : ''}
       ${pwd ? `<div class="field"><label for="a-pwd">Mot de passe</label>
         <input type="password" id="a-pwd" name="password" minlength="6" required
           autocomplete="${authMode === 'login' ? 'current-password' : 'new-password'}" placeholder="6 caractères minimum"></div>` : ''}
+      ${authMode === 'login' || authMode === 'signup' ? `<label class="toggle"><input type="checkbox" id="a-remember" ${remember() ? 'checked' : ''}><span class="toggle-ui"></span><span>Rester connectée sur ce téléphone</span></label>` : ''}
       <button class="btn block big" type="submit" id="a-submit">${t[2]}</button>
       <div class="auth-links">
         ${authMode === 'login' ? `<button type="button" class="link" data-auth="signup">Créer un compte</button>
@@ -704,6 +723,10 @@ function bindAuth() {
     const email = $('#a-email')?.value.trim();
     const password = $('#a-pwd')?.value;
     const back = location.origin + location.pathname;
+    try {
+      if ($('#a-remember')) localStorage.setItem('mn-remember', $('#a-remember').checked ? '1' : '0');
+      if (email) localStorage.setItem('mn-email', email);
+    } catch (err) {}
     let res;
     try {
       if (authMode === 'login') res = await sb.auth.signInWithPassword({ email, password });

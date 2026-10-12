@@ -285,6 +285,25 @@ select {
 .inline-add { display: flex; gap: 8px; }
 .inline-add input { flex: 1; }
 
+/* ---------- Compte & synchro ---------- */
+.brand > div { flex: 1; min-width: 0; }
+.sync {
+  font-size: 12px; font-weight: 800; padding: 4px 10px; border-radius: 99px;
+  background: var(--accent-soft); color: var(--accent); white-space: nowrap;
+}
+.sync.saving { background: var(--line); color: var(--muted); }
+.sync.error { background: var(--warm-soft); color: var(--warm); }
+body.auth .tabs { display: none; }
+body.auth { padding-bottom: 24px; }
+.auth-card { max-width: 420px; margin: 18px auto 0; padding: 22px 20px; }
+.auth-card h2 { font-size: 22px; }
+input[type=email], input[type=password] {
+  width: 100%; background: var(--field); border: 1px solid var(--line); border-radius: 14px;
+  padding: 12px 14px; font-size: 16px; outline: none; -webkit-appearance: none; appearance: none; min-height: 48px;
+}
+.auth-links { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.auth-links .link { font-size: 14px; color: var(--accent); }
+
 /* ---------- Toast ---------- */
 #toast {
   position: fixed; left: 50%; bottom: calc(100px + env(safe-area-inset-bottom));

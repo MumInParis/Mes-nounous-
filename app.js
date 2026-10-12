@@ -1,10 +1,20 @@
 /* Mes Nounous — suivi des heures de garde, des paiements et des taxis.
-   Données stockées localement dans le navigateur (localStorage). */
+   Sans configuration : données stockées dans le navigateur (localStorage).
+   Avec config.js rempli : compte par email + sauvegarde en ligne (Supabase). */
 
 const KEY = 'mes-nounous-v1';
 const MONTHS = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 
-let S = load();
+const CFG = window.MN_CONFIG || {};
+const CLOUD = !!(CFG.supabaseUrl && CFG.supabaseAnonKey && window.supabase);
+const sb = CLOUD ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey) : null;
+let user = null;          // utilisateur connecté (mode en ligne)
+let ready = !CLOUD;       // données chargées et prêtes à afficher
+let recovery = false;     // retour depuis le lien « mot de passe oublié »
+let authMode = 'login';   // login | signup | forgot | reset
+let authMsg = '';
+
+let S = CLOUD ? empty() : loadLocal(KEY);
 let tab = 'mois';
 const now = new Date();
 let cur = { y: now.getFullYear(), m: now.getMonth() };
@@ -13,17 +23,80 @@ let editNounou = null;   // id de la nounou en cours de modification
 let durMode = 'range';   // 'range' (début/fin) ou 'hours' (nombre d'heures)
 
 /* ---------- Données ---------- */
-function load() {
-  try {
-    const d = JSON.parse(localStorage.getItem(KEY));
-    if (d && Array.isArray(d.nounous)) return { nounous: [], enfants: [], creneaux: [], ...d };
-  } catch (e) {}
-  return { nounous: [], enfants: [], creneaux: [] };
+function empty() { return { nounous: [], enfants: [], creneaux: [] }; }
+function normalize(d) {
+  if (d && Array.isArray(d.nounous)) return { ...empty(), ...d };
+  return empty();
 }
+function loadLocal(key) {
+  try { return normalize(JSON.parse(localStorage.getItem(key))); } catch (e) { return empty(); }
+}
+const hasData = d => d.nounous.length || d.creneaux.length || d.enfants.length;
+const cacheKey = () => user ? `${KEY}-${user.id}` : KEY;
+
 function save() {
-  try { localStorage.setItem(KEY, JSON.stringify(S)); }
-  catch (e) { toast('Impossible d’enregistrer sur cet appareil'); }
+  try { localStorage.setItem(cacheKey(), JSON.stringify(S)); }
+  catch (e) { if (!CLOUD) toast('Impossible d’enregistrer sur cet appareil'); }
+  if (user) queuePush();
 }
+
+/* ---------- Sauvegarde en ligne ---------- */
+let pushTimer = null, pushing = false, dirty = false;
+
+function setSync(state) {
+  const el = document.getElementById('sync');
+  if (!el) return;
+  el.hidden = !CLOUD || !user;
+  el.className = 'sync ' + state;
+  el.textContent = { ok: 'Sauvegardé', saving: 'Enregistrement…', error: 'Hors ligne' }[state] || '';
+}
+
+function queuePush() {
+  dirty = true; setSync('saving');
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(push, 600);
+}
+
+async function push() {
+  if (!user || pushing) return !dirty;
+  pushing = true; dirty = false;
+  const { error } = await sb.from('user_data').upsert({ user_id: user.id, data: S, updated_at: new Date().toISOString() });
+  pushing = false;
+  if (error) { dirty = true; setSync('error'); return false; }
+  if (dirty) return push();
+  setSync('ok');
+  return true;
+}
+
+async function pull() {
+  setSync('saving');
+  const { data, error } = await sb.from('user_data').select('data').eq('user_id', user.id).maybeSingle();
+  if (error) { S = loadLocal(cacheKey()); setSync('error'); return; }
+  if (data && data.data && Array.isArray(data.data.nounous)) {
+    S = normalize(data.data);
+    try { localStorage.setItem(cacheKey(), JSON.stringify(S)); } catch (e) {}
+    setSync('ok');
+    return;
+  }
+  // Premier passage sur ce compte : on reprend les données déjà saisies sur cet appareil.
+  const cached = loadLocal(cacheKey());
+  const legacy = loadLocal(KEY);
+  const fromLegacy = !hasData(cached) && hasData(legacy);
+  S = fromLegacy ? legacy : cached;
+  const ok = await push();
+  if (ok && fromLegacy) {
+    try { localStorage.removeItem(KEY); } catch (e) {}
+    toast('Tes données ont été ajoutées à ton compte ✓');
+  }
+}
+
+window.addEventListener('online', () => { if (user && dirty) push(); });
+document.addEventListener('visibilitychange', async () => {
+  if (document.hidden || !user || !ready || dirty || pushing || recovery) return;
+  const before = JSON.stringify(S);
+  await pull();
+  if (JSON.stringify(S) !== before) render();
+});
 
 /* ---------- Utilitaires ---------- */
 const $ = (s, r = document) => r.querySelector(s);
@@ -64,10 +137,99 @@ const ICON = {
 
 /* ---------- Rendu ---------- */
 function render() {
-  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   const v = $('#view');
+  const needAuth = CLOUD && (!user || recovery);
+  document.body.classList.toggle('auth', needAuth || !ready);
+  if (needAuth) { v.innerHTML = viewAuth(); bindAuth(); return; }
+  if (!ready) { v.innerHTML = `<div class="empty"><p>Chargement de tes données…</p></div>`; return; }
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   v.innerHTML = { mois: viewMois, creneaux: viewCreneaux, nounous: viewNounous, plus: viewPlus }[tab]();
   bind();
+}
+
+/* --- Connexion --- */
+function viewAuth() {
+  const t = {
+    login: ['Connexion', 'Retrouve tes nounous et tes heures sur tous tes appareils.', 'Se connecter'],
+    signup: ['Créer un compte', 'Un email et un mot de passe suffisent. Tes données seront sauvegardées en ligne.', 'Créer mon compte'],
+    forgot: ['Mot de passe oublié', 'On t’envoie un lien par email pour en choisir un nouveau.', 'Envoyer le lien'],
+    reset: ['Nouveau mot de passe', 'Choisis ton nouveau mot de passe.', 'Enregistrer'],
+  }[authMode];
+  const email = authMode !== 'reset';
+  const pwd = authMode !== 'forgot';
+  return `<form class="card auth-card" id="authForm" autocomplete="on">
+    <h2>${t[0]}</h2>
+    <p class="hint" style="margin:-6px 0 16px">${t[1]}</p>
+    ${email ? `<div class="field"><label for="a-email">Email</label>
+      <input type="email" id="a-email" name="email" autocomplete="email" inputmode="email" placeholder="toi@exemple.fr" required></div>` : ''}
+    ${pwd ? `<div class="field"><label for="a-pwd">Mot de passe</label>
+      <input type="password" id="a-pwd" name="password" minlength="6" required
+        autocomplete="${authMode === 'login' ? 'current-password' : 'new-password'}" placeholder="6 caractères minimum"></div>` : ''}
+    ${authMsg ? `<div class="preview">${esc(authMsg)}</div>` : ''}
+    <button class="btn block" type="submit" id="a-submit">${t[2]}</button>
+    <div class="auth-links">
+      ${authMode === 'login' ? `<button type="button" class="link" data-auth="signup">Créer un compte</button>
+        <button type="button" class="link" data-auth="forgot">Mot de passe oublié ?</button>` : ''}
+      ${authMode === 'signup' || authMode === 'forgot' ? `<button type="button" class="link" data-auth="login">J’ai déjà un compte</button>` : ''}
+    </div>
+  </form>`;
+}
+
+const AUTH_ERRORS = [
+  [/invalid login/i, 'Email ou mot de passe incorrect.'],
+  [/email not confirmed/i, 'Confirme d’abord ton email avec le lien reçu.'],
+  [/already registered|already exists/i, 'Un compte existe déjà avec cet email. Connecte-toi.'],
+  [/password should be|at least 6/i, 'Le mot de passe doit faire au moins 6 caractères.'],
+  [/rate limit|too many/i, 'Trop d’essais. Réessaie dans quelques minutes.'],
+  [/fetch|network/i, 'Pas de connexion internet.'],
+];
+const authError = e => (AUTH_ERRORS.find(([r]) => r.test(e?.message || '')) || [, 'Une erreur est survenue. Réessaie.'])[1];
+
+function bindAuth() {
+  document.querySelectorAll('[data-auth]').forEach(b => b.addEventListener('click', () => {
+    authMode = b.dataset.auth; authMsg = ''; render();
+  }));
+  $('#authForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = $('#a-submit'); btn.disabled = true; btn.style.opacity = .6;
+    const email = $('#a-email')?.value.trim();
+    const password = $('#a-pwd')?.value;
+    const back = location.origin + location.pathname;
+    let res;
+    try {
+      if (authMode === 'login') res = await sb.auth.signInWithPassword({ email, password });
+      else if (authMode === 'signup') res = await sb.auth.signUp({ email, password, options: { emailRedirectTo: back } });
+      else if (authMode === 'forgot') res = await sb.auth.resetPasswordForEmail(email, { redirectTo: back });
+      else res = await sb.auth.updateUser({ password });
+    } catch (err) { res = { error: err }; }
+    btn.disabled = false; btn.style.opacity = '';
+    if (res.error) { authMsg = authError(res.error); render(); return; }
+    if (authMode === 'signup' && !res.data?.session) {
+      authMode = 'login'; authMsg = 'Compte créé ! Clique sur le lien reçu par email pour l’activer, puis connecte-toi.'; render();
+    } else if (authMode === 'forgot') {
+      authMode = 'login'; authMsg = 'Si un compte existe avec cet email, tu vas recevoir un lien.'; render();
+    } else if (authMode === 'reset') {
+      recovery = false; authMode = 'login'; authMsg = '';
+      toast('Mot de passe modifié ✓');
+      const { data } = await sb.auth.getSession();
+      if (data.session) signedIn(data.session.user);
+    }
+    // Connexion réussie : onAuthStateChange prend le relais.
+  });
+}
+
+async function signedIn(u) {
+  user = u; ready = false; authMsg = '';
+  render();
+  await pull();
+  ready = true; tab = 'mois';
+  render();
+}
+
+async function signOut() {
+  if (dirty) await push();
+  try { localStorage.removeItem(cacheKey()); } catch (e) {}
+  await sb.auth.signOut();
 }
 
 function monthNav() {
@@ -282,7 +444,15 @@ function viewNounous() {
 
 /* --- Onglet Plus --- */
 function viewPlus() {
-  return `<div class="card">
+  return `${user ? `<div class="card">
+    <h2>Mon compte</h2>
+    <div class="list-item">
+      <span class="avatar">${esc(initial(user.email))}</span>
+      <div class="grow"><div class="t">${esc(user.email)}</div><div class="s">Données sauvegardées en ligne</div></div>
+    </div>
+    <button class="btn ghost block" style="margin-top:10px" data-act="logout">Se déconnecter</button>
+  </div>` : ''}
+  <div class="card">
     <h2>Enfants</h2>
     ${S.enfants.length ? S.enfants.map(e => `<div class="list-item">
       <span class="avatar" style="background:var(--blue-soft);color:var(--blue)">${esc(initial(e.name))}</span>
@@ -297,7 +467,7 @@ function viewPlus() {
 
   <div class="card">
     <h2>Sauvegarde</h2>
-    <p class="hint" style="margin:-4px 0 14px">Tes données restent sur cet appareil. Exporte-les de temps en temps, ou pour les transférer sur un autre téléphone.</p>
+    <p class="hint" style="margin:-4px 0 14px">${user ? 'Tes données sont déjà sauvegardées sur ton compte. Tu peux aussi en garder une copie dans un fichier.' : 'Tes données restent sur cet appareil. Exporte-les de temps en temps, ou pour les transférer sur un autre téléphone.'}</p>
     <div class="btn-row">
       <button class="btn soft" data-act="export">Exporter</button>
       <button class="btn soft" data-act="import">Importer</button>
@@ -425,6 +595,7 @@ document.addEventListener('click', e => {
     case 'export': download(`mes-nounous-${todayISO()}.json`, JSON.stringify(S, null, 2), 'application/json'); break;
     case 'import': $('#importFile').click(); break;
     case 'csv': exportCSV(); break;
+    case 'logout': signOut(); break;
     case 'reset': if (confirm('Effacer définitivement toutes les données ?') && confirm('Vraiment ? Pense à exporter avant.')) { S = { nounous: [], enfants: [], creneaux: [] }; save(); tab = 'mois'; render(); } break;
   }
 });
@@ -468,4 +639,22 @@ function importData(e) {
   const h = new Date().getHours();
   $('#hello').textContent = h < 5 ? 'Bonne nuit 🌙' : h < 18 ? 'Bonjour ☀️' : 'Bonsoir 🌙';
 })();
-render();
+
+if (!CLOUD) {
+  render();
+} else {
+  ready = false;
+  $('#view').innerHTML = `<div class="empty"><p>Chargement…</p></div>`;
+  document.body.classList.add('auth');
+  sb.auth.onAuthStateChange((event, session) => {
+    if (event === 'PASSWORD_RECOVERY') { recovery = true; authMode = 'reset'; authMsg = ''; render(); return; }
+    const u = session?.user || null;
+    if (u && !recovery && (!user || u.id !== user.id)) {
+      setTimeout(() => signedIn(u), 0);     // hors du callback, comme le recommande Supabase
+    } else if (!u) {
+      user = null; ready = false; recovery = false; S = empty(); tab = 'mois';
+      if (event === 'SIGNED_OUT') { authMode = 'login'; authMsg = ''; }
+      setSync('ok'); render();
+    }
+  });
+}

@@ -256,7 +256,7 @@ function ticket(x) {
     </div>
     <div class="ticket-foot">${done
       ? `<span class="ok-txt">Tout est réglé</span><button class="link" data-act="unpayall" data-key="${esc(x.who.key)}">Annuler</button>`
-      : `<span class="muted-txt">${x.paid > 0.004 ? `${eur(x.paid)} déjà réglé sur ${eur(x.total)}` : `Sur ${eur(x.total)} ce mois-ci`}</span>
+      : `<span class="muted-txt">${x.paid > 0.004 ? `Déjà payé : ${eur(x.paid)} sur ${eur(x.total)}` : 'Rien de payé ce mois-ci'}</span>
          <button class="btn small" data-act="payall" data-key="${esc(x.who.key)}">C’est réglé</button>`}
     </div>
   </article>`;

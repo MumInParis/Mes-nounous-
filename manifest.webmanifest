@@ -1,12 +1,12 @@
 {
   "name": "Mes Nounous",
   "short_name": "Nounous",
-  "description": "Suivi des heures de garde, des paiements et des taxis.",
+  "description": "Le carnet des heures de garde, des paiements et des taxis.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#F7F4EF",
-  "theme_color": "#F7F4EF",
+  "background_color": "#EEF1F6",
+  "theme_color": "#EEF1F6",
   "lang": "fr",
   "icons": [
     { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }

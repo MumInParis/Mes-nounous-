@@ -1,6 +1,6 @@
+-- Installation complète (nouveau projet Supabase).
 -- À coller dans Supabase → SQL Editor → New query, puis « Run ».
--- Crée la table qui stocke les données de chaque compte.
--- Chaque personne ne peut lire et modifier que ses propres données.
+-- Ensuite, lance aussi supabase-mise-a-jour.sql (suppression de compte + statistiques admin).
 
 create table if not exists public.user_data (
   user_id    uuid primary key default auth.uid() references auth.users (id) on delete cascade,
@@ -10,19 +10,12 @@ create table if not exists public.user_data (
 
 alter table public.user_data enable row level security;
 
-drop policy if exists "lire ses données" on public.user_data;
-drop policy if exists "créer ses données" on public.user_data;
-drop policy if exists "modifier ses données" on public.user_data;
-drop policy if exists "supprimer ses données" on public.user_data;
+drop policy if exists "lire" on public.user_data;
+drop policy if exists "creer" on public.user_data;
+drop policy if exists "modifier" on public.user_data;
+drop policy if exists "supprimer" on public.user_data;
 
-create policy "lire ses données" on public.user_data
-  for select to authenticated using (auth.uid() = user_id);
-
-create policy "créer ses données" on public.user_data
-  for insert to authenticated with check (auth.uid() = user_id);
-
-create policy "modifier ses données" on public.user_data
-  for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
-
-create policy "supprimer ses données" on public.user_data
-  for delete to authenticated using (auth.uid() = user_id);
+create policy "lire" on public.user_data for select to authenticated using (auth.uid() = user_id);
+create policy "creer" on public.user_data for insert to authenticated with check (auth.uid() = user_id);
+create policy "modifier" on public.user_data for update to authenticated using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "supprimer" on public.user_data for delete to authenticated using (auth.uid() = user_id);

@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#F7F4EF" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#181917" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#EEF1F6" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0E1320" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="Mes Nounous">
@@ -14,43 +14,46 @@
   <link rel="apple-touch-icon" href="icon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600..800&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <header class="top">
-    <div class="brand">
-      <img src="icon.svg" alt="" class="logo">
-      <div>
-        <h1>Mes Nounous</h1>
-        <p class="hello" id="hello">Bonjour 👋</p>
-      </div>
-      <span id="sync" class="sync" hidden></span>
+    <img src="icon.svg" alt="" class="logo">
+    <div class="top-txt">
+      <h1>Mes Nounous</h1>
+      <p id="hello">Bonjour</p>
     </div>
+    <span id="sync" class="sync" hidden></span>
   </header>
 
   <main id="view"></main>
 
-  <nav class="tabs" aria-label="Navigation">
-    <button data-tab="mois" class="active">
-      <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
-      <span>Mois</span>
+  <nav class="nav" aria-label="Navigation">
+    <button data-tab="home" class="on">
+      <svg viewBox="0 0 24 24"><path d="M4 11l8-7 8 7v8a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z"/></svg>
+      <span>Accueil</span>
     </button>
-    <button data-tab="creneaux">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-      <span>Créneaux</span>
+    <button data-tab="journal">
+      <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="3"/><path d="M4 10h16M9 3v4M15 3v4"/></svg>
+      <span>Journal</span>
     </button>
-    <button data-tab="nounous">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
-      <span>Nounous</span>
+    <button class="fab" data-act="newGarde" aria-label="Ajouter une garde">
+      <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
     </button>
-    <button data-tab="plus">
-      <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg>
-      <span>Plus</span>
+    <button data-tab="famille">
+      <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><circle cx="17" cy="9.5" r="2.4"/><path d="M3 19c.8-3.2 3.2-5 6-5s5.2 1.8 6 5M15 14.6c2.6-.3 4.8 1.2 5.6 4.4"/></svg>
+      <span>Famille</span>
+    </button>
+    <button data-tab="compte">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="10" r="3"/><path d="M6.5 18.2c1.2-2 3.2-3.2 5.5-3.2s4.3 1.2 5.5 3.2"/></svg>
+      <span>Compte</span>
     </button>
   </nav>
 
+  <div id="sheet" hidden></div>
   <div id="toast" role="status" aria-live="polite"></div>
+
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
   <script src="config.js"></script>
   <script src="app.js"></script>

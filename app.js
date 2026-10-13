@@ -125,6 +125,19 @@ const toMin = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m;
 const initial = s => (s || '?').trim().charAt(0).toUpperCase() || '?';
 const comma = v => (v === '' || v == null) ? '' : String(v).replace('.', ',');
 const sum = (arr, f) => arr.reduce((s, x) => s + f(x), 0);
+const isoOf = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const slotMinutes = (a, b) => { if (!a || !b) return 0; let m = toMin(b) - toMin(a); if (m <= 0) m += 24 * 60; return m; };
+const addMin = (t, n) => { const m = ((toMin(t) + n) % 1440 + 1440) % 1440; return `${pad(Math.floor(m / 60))}:${pad(m % 60)}`; };
+function holidays(y) { // jours fériés en France métropolitaine
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25),
+    g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4,
+    l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451),
+    month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
+  const easter = new Date(y, month - 1, day);
+  const plus = n => { const x = new Date(easter); x.setDate(x.getDate() + n); return x; };
+  return new Set([new Date(y, 0, 1), plus(1), new Date(y, 4, 1), new Date(y, 4, 8), plus(39), plus(50),
+    new Date(y, 6, 14), new Date(y, 7, 15), new Date(y, 10, 1), new Date(y, 10, 11), new Date(y, 11, 25)].map(isoOf));
+}
 
 function toast(msg) {
   const t = $('#toast');
@@ -240,7 +253,9 @@ function viewHome() {
   </section>`;
 
   if (!slots.length) {
-    return h + `<div class="empty"><p>Note ta première garde de ${MONTHS[cur.m]}.</p><button class="btn" data-act="newGarde">Ajouter une garde</button></div>`;
+    return h + `<div class="empty"><p>Note ta première garde de ${MONTHS[cur.m]}.</p><div class="btn-wrap">
+      ${hasWeek() ? `<button class="btn" data-act="fill">Préremplir avec la semaine type</button>` : ''}
+      <button class="btn ${hasWeek() ? 'ghost' : ''}" data-act="newGarde">Ajouter une garde</button></div></div>`;
   }
   const groups = groupByWho(slots);
   const dueG = groups.filter(x => x.due > 0.004), okG = groups.filter(x => x.due <= 0.004);
@@ -277,6 +292,8 @@ function ticket(x) {
       : `<span class="muted-txt">${x.paid > 0.004 ? `Déjà payé : ${eur(x.paid)} sur ${eur(x.total)}` : 'Rien de payé ce mois-ci'}</span>
          <button class="btn small" data-act="payall" data-key="${esc(x.who.key)}">C’est réglé</button>`}
     </div>
+    <button class="report-link" data-act="report" data-key="${esc(x.who.key)}">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h7l5 5v13H7z"/><path d="M14 3v5h5M10 13h6M10 17h6"/></svg>Relevé PDF de ${MONTHS[cur.m]}</button>
   </article>`;
 }
 
@@ -286,6 +303,8 @@ function viewJournal() {
   let h = monthStrip();
   const slots = monthSlots().reverse();
   h += `<div class="journal-head"><h2>Journal de ${MONTHS[cur.m]}</h2><span class="muted-txt">${slots.length} garde${slots.length > 1 ? 's' : ''}</span></div>`;
+  if (hasWeek()) h += `<button class="btn ghost block fill-btn" data-act="fill">Préremplir avec la semaine type</button>`;
+  else if (S.nounous.length && !slots.length) h += `<p class="hint" style="margin:0 2px 14px">Astuce : renseigne la semaine type de ta nounou (onglet Famille) pour préremplir le journal en un geste.</p>`;
   if (!slots.length) return h + `<div class="empty"><p>Rien de noté en ${MONTHS[cur.m]}.</p><button class="btn" data-act="newGarde">Ajouter une garde</button></div>`;
   h += '<div class="entries">';
   for (const c of slots) {
@@ -317,7 +336,8 @@ function viewFamille() {
   } else {
     h += `<div class="people">${S.nounous.map(n => `<button class="person ${n.active ? '' : 'off'}" data-act="editNounou" data-id="${n.id}">
       <span class="who-badge">${esc(initial(n.name))}</span>
-      <span class="person-txt"><b>${esc(n.name)}</b><small>${eur(n.rate1)} / h${n.rate2 ? ` · ${eur(n.rate2)} / h à plusieurs` : ''}</small></span>
+      <span class="person-txt"><b>${esc(n.name)}</b><small>${eur(n.rate1)} / h${n.rate2 ? ` · ${eur(n.rate2)} / h à plusieurs` : ''}</small>
+        <small>${n.week?.length ? `Semaine type : ${weekDays(n.week)} · ${hm(weekMinutes(n.week))}` : 'Pas de semaine type'}</small></span>
       <span class="tag">${n.active ? esc(n.decl === 'Non déclarée' ? 'Aucune' : (n.decl || 'Aucune')) : 'Archivée'}</span>
     </button>`).join('')}</div>`;
   }
@@ -411,6 +431,12 @@ function openSheet(s) {
     const n = s.id ? nounou(s.id) : null;
     const d = n?.decl === 'Non déclarée' ? 'Aucune' : (n?.decl || 'Pajemploi');
     sheet.decl = DECLS.includes(d) ? d : 'Aucune';
+    sheet.draft = nounouDraft(n);
+  }
+  if (s.type === 'fill') {
+    const isCur = cur.y === now.getFullYear() && cur.m === now.getMonth();
+    sheet.period = isCur ? (weeksOfMonth().find(w => w.has)?.key || 'month') : 'month';
+    sheet.skipHol = true;
   }
   renderSheet();
   setTimeout(() => $('.sheet-panel')?.focus(), 30);
@@ -420,14 +446,16 @@ function closeSheet(silent) {
   sheet = null; draft = null;
   renderSheet();
 }
-function renderSheet() {
+function renderSheet(still) {
   const root = $('#sheet');
   if (!sheet) { root.hidden = true; root.innerHTML = ''; document.body.classList.remove('sheet-open'); return; }
   root.hidden = false;
+  root.classList.toggle('still', !!still);
   document.body.classList.add('sheet-open');
+  const body = { garde: sheetGarde, nounou: sheetNounou, fill: sheetFill }[sheet.type]();
   root.innerHTML = `<div class="sheet-backdrop" data-act="closeSheet"></div>
-    <div class="sheet-panel" role="dialog" aria-modal="true" tabindex="-1">${sheet.type === 'garde' ? sheetGarde() : sheetNounou()}</div>`;
-  if (sheet.type === 'garde') bindGarde(); else bindNounou();
+    <div class="sheet-panel" role="dialog" aria-modal="true" tabindex="-1">${body}</div>`;
+  ({ garde: bindGarde, nounou: bindNounou, fill: bindFill })[sheet.type]();
 }
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && sheet) closeSheet(); });
 
@@ -489,6 +517,8 @@ function sheetGarde() {
       <div class="grid2" id="g-range" ${d.mode === 'range' ? '' : 'hidden'}>
         <div class="field"><label for="g-start">Arrivée</label><input type="time" id="g-start" value="${d.start}"></div>
         <div class="field"><label for="g-end">Départ</label><input type="time" id="g-end" value="${d.end}"></div>
+        <div class="chips ext"><span class="muted-txt">Heures sup :</span>
+          ${[15, 30, 60].map(m => `<button type="button" class="chip small" data-ext="${m}">+${m < 60 ? m + ' min' : '1 h'}</button>`).join('')}</div>
       </div>
       <div id="g-dur" ${d.mode === 'dur' ? '' : 'hidden'}>
         <div class="stepper">
@@ -587,6 +617,14 @@ function bindGarde() {
       $('#g-durv').textContent = hm(d.minutes);
       return updateSum();
     }
+    const ex = e.target.closest('[data-ext]');
+    if (ex) {
+      if (!d.end) { toast('Indique d’abord l’heure de départ'); return; }
+      d.end = addMin(d.end, Number(ex.dataset.ext));
+      $('#g-end').value = d.end;
+      toast(`Départ décalé à ${d.end}`);
+      return updateSum();
+    }
     const k = e.target.closest('[data-kid]');
     if (k) {
       const id = k.dataset.kid, on = !d.enfants.includes(id);
@@ -623,53 +661,310 @@ function submitGarde() {
   save(); closeSheet(); render();
 }
 
-/* --- Nounou --- */
+/* --- Nounou (fiche + semaine type) --- */
+const DOW = [1, 2, 3, 4, 5, 6, 0];
+const DOW_LABEL = { 1: 'Lun.', 2: 'Mar.', 3: 'Mer.', 4: 'Jeu.', 5: 'Ven.', 6: 'Sam.', 0: 'Dim.' };
+const weekMinutes = week => sum(week || [], s => slotMinutes(s.start, s.end));
+const weekDays = week => [...new Set((week || []).map(s => s.dow))].sort((a, b) => DOW.indexOf(a) - DOW.indexOf(b)).map(x => DOW_LABEL[x].replace('.', '')).join(', ');
+
+function nounouDraft(n) {
+  return {
+    name: n?.name || '', rate1: n ? comma(n.rate1) : '', rate2: n?.rate2 ? comma(n.rate2) : '',
+    active: n ? n.active : true,
+    week: (n?.week || []).map(x => ({ ...x })),
+    weekKids: n?.weekKids ? [...n.weekKids] : S.enfants.map(e => e.id),
+  };
+}
+
 function sheetNounou() {
-  const n = sheet.id ? nounou(sheet.id) : null;
+  const n = sheet.id ? nounou(sheet.id) : null, d = sheet.draft;
   const used = n && S.creneaux.some(c => c.nounouId === n.id);
   return `<form id="nounouForm" autocomplete="off" novalidate>
     <div class="sheet-head"><h2>${n ? esc(n.name) : 'Nouvelle nounou'}</h2>
       <button type="button" class="x" data-act="closeSheet" aria-label="Fermer">×</button></div>
     <div class="q"><div class="field"><label for="n-name">Prénom</label>
-      <input type="text" id="n-name" value="${esc(n?.name || '')}" placeholder="Ex : Inès" required></div></div>
+      <input type="text" id="n-name" value="${esc(d.name)}" placeholder="Ex : Inès" required></div></div>
     <div class="grid2">
       <div class="field"><label for="n-r1">Tarif horaire</label>
-        <div class="money"><input type="text" inputmode="decimal" id="n-r1" value="${n ? comma(n.rate1) : ''}" placeholder="0,00"><span>€</span></div></div>
+        <div class="money"><input type="text" inputmode="decimal" id="n-r1" value="${esc(d.rate1)}" placeholder="0,00"><span>€</span></div></div>
       <div class="field"><label for="n-r2">Avec plusieurs enfants</label>
-        <div class="money"><input type="text" inputmode="decimal" id="n-r2" value="${n?.rate2 ? comma(n.rate2) : ''}" placeholder="Pareil"><span>€</span></div></div>
+        <div class="money"><input type="text" inputmode="decimal" id="n-r2" value="${esc(d.rate2)}" placeholder="Pareil"><span>€</span></div></div>
     </div>
     <div class="q"><span class="q-label">Déclarée via</span><div class="chips">
       ${DECLS.map(x => `<button type="button" class="chip ${sheet.decl === x ? 'on' : ''}" data-decl="${x}" aria-pressed="${sheet.decl === x}">${x}</button>`).join('')}
     </div></div>
-    ${n ? `<label class="toggle"><input type="checkbox" id="n-active" ${n.active ? 'checked' : ''}><span class="toggle-ui"></span><span>Toujours en poste</span></label>` : ''}
+
+    <div class="q week-box">
+      <span class="q-label">Semaine type <small class="muted-txt">facultatif</small></span>
+      <p class="hint" style="margin:0 0 12px">Ses horaires habituels. Le journal pourra ensuite se préremplir en un geste ; tu n’auras plus qu’à ajuster les heures sup.</p>
+      <div class="week">${d.week.map((s, i) => `<div class="wrow">
+        <select data-wi="${i}" data-wf="dow" aria-label="Jour">${DOW.map(x => `<option value="${x}" ${s.dow === x ? 'selected' : ''}>${DOW_LABEL[x]}</option>`).join('')}</select>
+        <input type="time" data-wi="${i}" data-wf="start" value="${s.start}" aria-label="Arrivée">
+        <input type="time" data-wi="${i}" data-wf="end" value="${s.end}" aria-label="Départ">
+        <button type="button" class="wdel" data-wdel="${i}" aria-label="Retirer ce créneau">×</button>
+      </div>`).join('')}</div>
+      <div class="chips quick">
+        <button type="button" class="chip small" data-wadd>+ Ajouter un jour</button>
+        ${d.week.length ? '<button type="button" class="chip small" data-wrep>Même horaire du lundi au vendredi</button>' : ''}
+      </div>
+      ${d.week.length ? `<div class="hint" id="n-wtot" style="margin:10px 0 0">${hm(weekMinutes(d.week))} par semaine</div>` : ''}
+      ${S.enfants.length > 1 && d.week.length ? `<div class="q-sub">Enfants gardés habituellement</div><div class="chips">
+        ${S.enfants.map(e => `<button type="button" class="chip small ${d.weekKids.includes(e.id) ? 'on' : ''}" data-wkid="${e.id}" aria-pressed="${d.weekKids.includes(e.id)}">${esc(e.name)}</button>`).join('')}
+      </div>` : ''}
+    </div>
+
+    ${n ? `<label class="toggle"><input type="checkbox" id="n-active" ${d.active ? 'checked' : ''}><span class="toggle-ui"></span><span>Toujours en poste</span></label>` : ''}
     <button class="btn block big" type="submit">${n ? 'Enregistrer' : 'Ajouter'}</button>
     ${n ? `<button type="button" class="btn danger-ghost block" data-act="delNounou" data-id="${n.id}" data-confirm="${used ? 'Toucher encore pour archiver' : 'Toucher encore pour supprimer'}">${used ? 'Archiver (ses gardes restent dans le journal)' : 'Supprimer'}</button>` : ''}
   </form>`;
 }
 
+function captureNounou() {
+  const d = sheet.draft;
+  d.name = $('#n-name').value; d.rate1 = $('#n-r1').value; d.rate2 = $('#n-r2').value;
+  if ($('#n-active')) d.active = $('#n-active').checked;
+  document.querySelectorAll('[data-wi]').forEach(el => {
+    const s = d.week[Number(el.dataset.wi)]; if (!s) return;
+    s[el.dataset.wf] = el.dataset.wf === 'dow' ? Number(el.value) : el.value;
+  });
+}
+
 function bindNounou() {
-  const f = $('#nounouForm');
+  const f = $('#nounouForm'), d = sheet.draft;
+  const again = () => { const p = $('.sheet-panel'), top = p ? p.scrollTop : 0; renderSheet(true); $('.sheet-panel').scrollTop = top; };
   f.addEventListener('click', e => {
     const b = e.target.closest('[data-decl]');
-    if (!b) return;
-    sheet.decl = b.dataset.decl;
-    f.querySelectorAll('[data-decl]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', x === b); });
+    if (b) {
+      sheet.decl = b.dataset.decl;
+      f.querySelectorAll('[data-decl]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', x === b); });
+      return;
+    }
+    if (e.target.closest('[data-wadd]')) {
+      captureNounou();
+      const last = d.week[d.week.length - 1];
+      const taken = new Set(d.week.map(s => s.dow));
+      const next = last ? (DOW.find(x => !taken.has(x) && DOW.indexOf(x) > DOW.indexOf(last.dow)) ?? last.dow) : 1;
+      d.week.push({ dow: next, start: last?.start || '16:30', end: last?.end || '19:00' });
+      return again();
+    }
+    const del = e.target.closest('[data-wdel]');
+    if (del) { captureNounou(); d.week.splice(Number(del.dataset.wdel), 1); return again(); }
+    if (e.target.closest('[data-wrep]')) {
+      captureNounou();
+      const ref = d.week[0];
+      d.week = [1, 2, 3, 4, 5].map(x => ({ dow: x, start: ref.start, end: ref.end })).concat(d.week.filter(s => s.dow === 0 || s.dow === 6));
+      return again();
+    }
+    const k = e.target.closest('[data-wkid]');
+    if (k) {
+      const id = k.dataset.wkid, on = !d.weekKids.includes(id);
+      d.weekKids = on ? [...d.weekKids, id] : d.weekKids.filter(x => x !== id);
+      k.classList.toggle('on', on); k.setAttribute('aria-pressed', on);
+    }
   });
+  const upd = e => {
+    if (!e.target.closest('.wrow')) return;
+    captureNounou();
+    const t = $('#n-wtot'); if (t) t.textContent = `${hm(weekMinutes(d.week))} par semaine`;
+  };
+  f.addEventListener('input', upd);
+  f.addEventListener('change', upd);
   f.addEventListener('submit', e => {
     e.preventDefault();
-    const d = {
-      name: $('#n-name').value.trim(),
-      rate1: round2(num($('#n-r1').value)),
-      rate2: round2(num($('#n-r2').value)) || null,
-      decl: sheet.decl,
-      active: $('#n-active') ? $('#n-active').checked : true,
+    captureNounou();
+    const week = d.week.filter(s => s.start && s.end)
+      .sort((a, b) => DOW.indexOf(a.dow) - DOW.indexOf(b.dow) || a.start.localeCompare(b.start));
+    const o = {
+      name: d.name.trim(), rate1: round2(num(d.rate1)), rate2: round2(num(d.rate2)) || null,
+      decl: sheet.decl, active: d.active, week, weekKids: d.weekKids.filter(id => enfant(id)),
     };
-    if (!d.name) return toast('Indique un prénom');
-    if (!d.rate1) return toast('Indique un tarif horaire');
-    if (sheet.id) { Object.assign(nounou(sheet.id), d); toast('Modifications enregistrées'); }
-    else { S.nounous.push({ id: uid(), ...d }); toast(`${d.name} est ajoutée`); }
+    if (!o.name) return toast('Indique un prénom');
+    if (!o.rate1) return toast('Indique un tarif horaire');
+    if (sheet.id) { Object.assign(nounou(sheet.id), o); toast('Modifications enregistrées'); }
+    else { S.nounous.push({ id: uid(), ...o }); toast(`${o.name} est ajoutée`); }
     save(); closeSheet(); render();
   });
+}
+
+/* --- Préremplir avec la semaine type --- */
+const hasWeek = () => S.nounous.some(n => n.active && n.week?.length);
+
+function weeksOfMonth() {
+  const first = new Date(cur.y, cur.m, 1), last = new Date(cur.y, cur.m + 1, 0);
+  const d = new Date(first); d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  const out = [];
+  while (d <= last) {
+    const end = new Date(d); end.setDate(end.getDate() + 6);
+    const s = d < first ? first : d, e = end > last ? last : end;
+    out.push({ key: isoOf(d), from: isoOf(s), to: isoOf(e), label: `${s.getDate()}–${e.getDate()} ${MONTHS_SHORT[cur.m]}`, has: isoOf(s) <= todayISO() && todayISO() <= isoOf(e) });
+    d.setDate(d.getDate() + 7);
+  }
+  return out;
+}
+
+function fillPlan() {
+  const weeks = weeksOfMonth();
+  let from, to;
+  if (sheet.period === 'month') { from = isoOf(new Date(cur.y, cur.m, 1)); to = isoOf(new Date(cur.y, cur.m + 1, 0)); }
+  else { const w = weeks.find(x => x.key === sheet.period) || weeks[0]; from = w.from; to = w.to; }
+  const hol = holidays(cur.y);
+  const people = S.nounous.filter(n => n.active && n.week?.length);
+  const add = []; let skipped = 0, holSkipped = 0;
+  for (let d = new Date(from + 'T12:00:00'); isoOf(d) <= to; d.setDate(d.getDate() + 1)) {
+    const iso = isoOf(d), dow = d.getDay();
+    for (const n of people) for (const s of n.week) {
+      if (s.dow !== dow) continue;
+      if (sheet.skipHol && hol.has(iso)) { holSkipped++; continue; }
+      if (S.creneaux.some(c => c.nounouId === n.id && c.date === iso && (!c.start || c.start === s.start))) { skipped++; continue; }
+      add.push({ id: uid(), date: iso, nounouId: n.id, start: s.start, end: s.end, minutes: slotMinutes(s.start, s.end),
+        enfants: (n.weekKids || []).filter(id => enfant(id)), taxi: 0, note: '', paid: false });
+    }
+  }
+  return { add, skipped, holSkipped };
+}
+
+function sheetFill() {
+  const weeks = weeksOfMonth(), plan = fillPlan();
+  const people = S.nounous.filter(n => n.active && n.week?.length).map(n => esc(n.name));
+  const k = plan.add.length, s = k > 1 ? 's' : '';
+  return `<div class="sheet-head"><h2>Préremplir ${MONTHS[cur.m]}</h2>
+      <button type="button" class="x" data-act="closeSheet" aria-label="Fermer">×</button></div>
+    <p class="hint" style="margin:4px 0 0">D’après la semaine type de ${people.join(' et ')}. Ensuite, touche une garde dans le journal pour ajouter des heures sup ou la supprimer en cas d’absence.</p>
+    <div class="q"><span class="q-label">Quelle période ?</span><div class="chips">
+      <button type="button" class="chip ${sheet.period === 'month' ? 'on' : ''}" data-period="month">Tout ${MONTHS[cur.m]}</button>
+      ${weeks.map(w => `<button type="button" class="chip small ${sheet.period === w.key ? 'on' : ''}" data-period="${w.key}">${w.label}</button>`).join('')}
+    </div></div>
+    <label class="toggle"><input type="checkbox" id="f-hol" ${sheet.skipHol ? 'checked' : ''}><span class="toggle-ui"></span><span>Sauter les jours fériés</span></label>
+    <div class="sum"><span>${k ? `${k} garde${s} · ${hm(sum(plan.add, c => c.minutes))}` : 'Rien à ajouter sur cette période'}
+      ${plan.skipped ? `<br><small>${plan.skipped} déjà dans le journal, laissée${plan.skipped > 1 ? 's' : ''} telle${plan.skipped > 1 ? 's' : ''} quelle${plan.skipped > 1 ? 's' : ''}</small>` : ''}
+      ${plan.holSkipped && sheet.skipHol ? `<br><small>${plan.holSkipped} férié${plan.holSkipped > 1 ? 's' : ''} sauté${plan.holSkipped > 1 ? 's' : ''}</small>` : ''}</span>
+      <b>${eur(sum(plan.add, total))}</b></div>
+    <button type="button" class="btn block big" data-act="doFill" ${k ? '' : 'disabled'}>${k ? `Ajouter ${k} garde${s}` : 'Rien à ajouter'}</button>`;
+}
+
+function bindFill() {
+  const p = $('.sheet-panel');
+  p.addEventListener('click', e => {
+    const b = e.target.closest('[data-period]');
+    if (b) { sheet.period = b.dataset.period; renderSheet(true); }
+  });
+  $('#f-hol').addEventListener('change', e => { sheet.skipHol = e.target.checked; renderSheet(true); });
+}
+
+function doFill() {
+  const plan = fillPlan();
+  S.creneaux.push(...plan.add);
+  save(); closeSheet(); tab = 'journal'; render(); window.scrollTo(0, 0);
+  toast(`${plan.add.length} garde${plan.add.length > 1 ? 's' : ''} ajoutée${plan.add.length > 1 ? 's' : ''}`);
+}
+
+/* --- Relevé PDF mensuel --- */
+const pdfTxt = s => String(s).replace(/[  ]/g, ' ');
+
+function buildReport(key) {
+  const slots = monthSlots().filter(c => who(c).key === key);
+  if (!slots.length) return null;
+  const w = who(slots[0]);
+  const n = w.adhoc ? null : nounou(key);
+  const P = new MiniPDF(), L = 40, R = P.W - 40;
+  const INK = [23, 32, 54], MUTED = [103, 112, 137], ACC = [29, 107, 120], LINE = [223, 227, 236], SOFT = [238, 241, 246], DUE = [200, 64, 92];
+  const E = v => pdfTxt(eur(v));
+  const monthLabel = `${MONTHS[cur.m].charAt(0).toUpperCase() + MONTHS[cur.m].slice(1)} ${cur.y}`;
+
+  // En-tête
+  P.rect(0, 0, P.W, 8, ACC);
+  P.text(L, 52, 'Relevé de garde', { bold: true, size: 22, color: INK });
+  P.text(R, 52, monthLabel, { bold: true, size: 14, color: ACC, align: 'right' });
+  P.text(L, 76, w.adhoc ? `${w.name} · garde ponctuelle` : `${w.name}${n?.decl && n.decl !== 'Aucune' && n.decl !== 'Non déclarée' ? ` · déclarée via ${n.decl}` : ''}`, { size: 11, color: MUTED });
+  if (n) P.text(L, 92, pdfTxt(`Tarif : ${eur(n.rate1)} / h${n.rate2 ? ` (${eur(n.rate2)} / h avec plusieurs enfants)` : ''}`), { size: 9.5, color: MUTED });
+
+  // Synthèse
+  const tot = sum(slots, total), gardeTot = sum(slots, garde), tx = sum(slots, taxi);
+  const paid = sum(slots.filter(c => c.paid), total), due = round2(tot - paid);
+  const mins = sum(slots, c => c.minutes || 0), days = new Set(slots.map(c => c.date)).size;
+  const boxes = [['Heures', hm(mins)], ['Jours', String(days)], ['Garde', E(gardeTot)], ['Taxis', E(tx)], ['Total', E(tot)]];
+  const bw = (R - L - 4 * 8) / 5, by = 112;
+  boxes.forEach(([k, v], i) => {
+    const x = L + i * (bw + 8);
+    P.rect(x, by, bw, 50, i === 4 ? INK : SOFT);
+    P.text(x + 10, by + 18, k, { size: 8.5, color: i === 4 ? [174, 182, 204] : MUTED });
+    P.text(x + 10, by + 38, v, { size: 14, bold: true, color: i === 4 ? [255, 203, 69] : INK });
+  });
+  P.text(L, by + 70, `Déjà payé : ${E(paid)}`, { size: 10, color: INK });
+  P.text(R, by + 70, due > 0.004 ? `Reste à payer : ${E(due)}` : 'Tout est payé', { size: 10, bold: true, color: due > 0.004 ? DUE : ACC, align: 'right' });
+
+  // Tableau
+  const cols = [
+    { t: 'Date', w: 62 }, { t: 'Horaires', w: 76 }, { t: 'Durée', w: 50 }, { t: 'Enfants', w: 105 },
+    { t: 'Garde', w: 60, r: 1 }, { t: 'Taxi', w: 52, r: 1 }, { t: 'Total', w: 60, r: 1 }, { t: 'Payé', w: 50, r: 1 },
+  ];
+  let y = by + 96;
+  const header = () => {
+    P.rect(L, y, R - L, 22, SOFT);
+    let x = L;
+    cols.forEach(c => { P.text(c.r ? x + c.w - 6 : x + 6, y + 14.5, c.t, { size: 8.5, bold: true, color: MUTED, align: c.r ? 'right' : 'left' }); x += c.w; });
+    y += 22;
+  };
+  header();
+  for (const c of slots) {
+    const h = c.note ? 32 : 22;
+    if (y + h > P.H - 70) { P.addPage(); y = 40; header(); }
+    const d = new Date(c.date + 'T12:00:00');
+    const kids = (c.enfants || []).map(id => enfant(id)?.name).filter(Boolean).join(', ');
+    const cells = [
+      `${DAYS_SHORT[d.getDay()]} ${d.getDate()}`, c.start ? `${c.start} – ${c.end}` : (c.adhoc?.mode === 'flat' ? 'Forfait' : '—'),
+      c.minutes ? hm(c.minutes) : '—', kids || '—', E(garde(c)), taxi(c) ? E(taxi(c)) : '—', E(total(c)), c.paid ? 'Oui' : 'Non',
+    ];
+    let x = L;
+    cells.forEach((v, i) => {
+      const col = cols[i];
+      const txt = MiniPDF.fit(pdfTxt(v), i === 6, 9, col.w - 12);
+      P.text(col.r ? x + col.w - 6 : x + 6, y + 14.5, txt, { size: 9, bold: i === 6, color: i === 7 && !c.paid ? DUE : INK, align: col.r ? 'right' : 'left' });
+      x += col.w;
+    });
+    if (c.note) P.text(L + cols[0].w + 6, y + 26, MiniPDF.fit(pdfTxt(c.note), false, 8, 220), { size: 8, color: MUTED });
+    y += h;
+    P.line(L, y, R, y, LINE);
+  }
+  // Ligne de total
+  if (y + 26 > P.H - 70) { P.addPage(); y = 40; }
+  P.rect(L, y, R - L, 24, SOFT);
+  P.text(L + 6, y + 16, 'Total du mois', { size: 9.5, bold: true, color: INK });
+  P.text(L + cols[0].w + cols[1].w + 6, y + 16, hm(mins), { size: 9.5, bold: true, color: INK });
+  const xr = i => L + cols.slice(0, i + 1).reduce((s, c) => s + c.w, 0) - 6;
+  P.text(xr(4), y + 16, E(gardeTot), { size: 9.5, bold: true, color: INK, align: 'right' });
+  P.text(xr(5), y + 16, E(tx), { size: 9.5, bold: true, color: INK, align: 'right' });
+  P.text(xr(6), y + 16, E(tot), { size: 9.5, bold: true, color: INK, align: 'right' });
+  y += 44;
+
+  if (n && n.decl === 'Pajemploi') {
+    if (y + 40 > P.H - 50) { P.addPage(); y = 40; }
+    P.text(L, y, 'Repères pour la déclaration Pajemploi', { size: 9.5, bold: true, color: ACC });
+    P.text(L, y + 15, pdfTxt(`${hm(mins)} de garde sur ${days} jour${days > 1 ? 's' : ''} · rémunération ${eur(gardeTot)} (hors taxis, calculée avec le tarif saisi)`), { size: 9, color: INK });
+    y += 34;
+  }
+  // Pied de page
+  const stamp = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  P.pages.forEach((_, i) => {
+    P.ops = P.pages[i];
+    P.line(L, P.H - 40, R, P.H - 40, LINE);
+    P.text(L, P.H - 26, `Établi le ${stamp} avec Mes Nounous, d’après les gardes saisies.`, { size: 8, color: MUTED });
+    if (P.pages.length > 1) P.text(R, P.H - 26, `${i + 1} / ${P.pages.length}`, { size: 8, color: MUTED, align: 'right' });
+  });
+  const slug = w.name.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').toLowerCase();
+  return { bytes: P.output(), name: `releve-${slug}-${cur.y}-${pad(cur.m + 1)}.pdf`, title: `Relevé ${w.name} – ${monthLabel}` };
+}
+
+async function shareReport(key) {
+  let r;
+  try { r = buildReport(key); } catch (e) { console.error(e); return toast('Impossible de créer le relevé'); }
+  if (!r) return toast('Aucune garde ce mois-ci');
+  const file = new File([r.bytes], r.name, { type: 'application/pdf' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: r.title }); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  download(r.name, r.bytes, 'application/pdf');
 }
 
 /* ---------- Connexion ---------- */
@@ -808,6 +1103,9 @@ document.addEventListener('click', e => {
     case 'newGarde': openSheet({ type: 'garde' }); break;
     case 'editGarde': openSheet({ type: 'garde', id }); break;
     case 'newNounou': openSheet({ type: 'nounou' }); break;
+    case 'fill': openSheet({ type: 'fill' }); break;
+    case 'doFill': doFill(); break;
+    case 'report': shareReport(key); break;
     case 'editNounou': openSheet({ type: 'nounou', id }); break;
     case 'closeSheet': closeSheet(); break;
     case 'toggle': { const s = S.creneaux.find(x => x.id === id); s.paid = !s.paid; save(); render(); break; }

@@ -355,6 +355,32 @@ input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-so
 .sum { display: flex; justify-content: space-between; align-items: center; gap: 10px; background: var(--accent-soft); color: var(--accent); border-radius: 14px; padding: 12px 14px; margin: 14px 0; font-weight: 600; font-size: 14px; min-height: 52px; }
 .sum b { font-family: var(--font-display); font-size: 22px; white-space: nowrap; }
 
+/* ---------- Semaine type, préremplissage, relevé ---------- */
+select {
+  width: 100%; min-height: 48px; font-size: 16px; color: var(--ink);
+  background: var(--field) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23808AA3' stroke-width='2.2' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 8px center / 16px;
+  border: 1.5px solid var(--line); border-radius: 12px; padding: 11px 26px 11px 10px;
+  outline: none; -webkit-appearance: none; appearance: none;
+}
+select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.week-box { border-top: 1px solid var(--line); padding-top: 18px; }
+.week { display: grid; gap: 8px; }
+.wrow { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr) minmax(0, 1.1fr) 34px; gap: 6px; align-items: center; }
+.wrow input[type=time] { padding: 11px 6px; text-align: center; }
+.wdel { width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--field); color: var(--muted); font-size: 20px; line-height: 1; padding: 0; }
+.q-sub { font-size: 13px; font-weight: 600; color: var(--muted); margin: 16px 0 8px; }
+.ext { grid-column: 1 / -1; align-items: center; margin-top: 2px; }
+.fill-btn { margin-bottom: 14px; border-style: dashed; border-width: 1.5px; color: var(--accent); }
+.btn-wrap { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.btn:disabled { opacity: .45; cursor: default; }
+.sum small { font-weight: 500; opacity: .85; }
+#sheet.still .sheet-panel, #sheet.still .sheet-backdrop { animation: none; }
+.report-link {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 10px;
+  background: none; border: 0; padding: 4px 0; color: var(--accent); font-weight: 600; font-size: 14px;
+}
+.report-link svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
 /* ---------- Connexion ---------- */
 .auth-wrap { max-width: 420px; margin: 8px auto 0; }
 .auth-intro { margin: 8px 4px 18px; }
